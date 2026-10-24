@@ -1,0 +1,109 @@
+name: Build WaveTone
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  phone:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the files
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Accept Android licences
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build the phone app
+        run: |
+          # unpack oldest zip first, newest last, so the newest files always win
+          rm -rf WaveTone WaveTonePC
+          for f in *.zip; do echo "$(git log -1 --format=%ct -- "$f") $f"; done | sort -n | while IFS= read -r line; do
+            z="${line#* }"; echo "unpacking $z"; unzip -q -o "$z"
+          done
+          mkdir -p out
+          for d in */; do
+            if [ -f "$d/settings.gradle.kts" ]; then
+              (cd "$d" && gradle assembleDebug --no-daemon --stacktrace)
+              cp "$d/app/build/outputs/apk/debug/app-debug.apk" "out/${d%/}.apk"
+            fi
+          done
+          ls -la out
+
+      - name: Keep the phone app
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone
+          path: out/*.apk
+
+  pc:
+    runs-on: windows-latest
+    steps:
+      - name: Get the files
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Unpack the zip
+        shell: bash
+        run: |
+          rm -rf WaveTone WaveTonePC
+          for f in *.zip; do echo "$(git log -1 --format=%ct -- "$f") $f"; done | sort -n | while IFS= read -r line; do
+            z="${line#* }"; echo "unpacking $z"; 7z x -y -o. "$z" > /dev/null
+          done
+
+      - name: Build the PC app
+        shell: bash
+        run: |
+          mkdir -p out
+          dotnet publish WaveTonePC/WaveTonePC.csproj -c Release -r win-x64 --self-contained true \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o pcout
+          cp pcout/WaveTone.exe out/WaveTone-PC.exe
+          ls -la out
+
+      - name: Keep the PC app
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc
+          path: out/*.exe
+
+  release:
+    needs: [phone, pc]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect both apps
+        uses: actions/download-artifact@v4
+        with:
+          path: collected
+          merge-multiple: true
+
+      - name: Publish a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: WaveTone build ${{ github.run_number }}
+          files: |
+            collected/*.apk
+            collected/*.exe
