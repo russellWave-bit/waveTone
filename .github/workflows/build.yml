@@ -80,8 +80,15 @@ jobs:
           mkdir -p out
           dotnet publish WaveTonePC/WaveTonePC.csproj -c Release -r win-x64 --self-contained true \
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o pcout
-          cp pcout/WaveTone.exe out/WaveTone-PC.exe
+          cp pcout/WaveTone.exe out/WaveTone-PC-portable.exe
           ls -la out
+
+      - name: Make the installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" WaveTonePC/installer.iss
+          Copy-Item setupout/WaveTone-Setup.exe out/WaveTone-Setup.exe
 
       - name: Keep the PC app
         uses: actions/upload-artifact@v4
