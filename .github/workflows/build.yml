@@ -85,10 +85,19 @@ jobs:
 
       - name: Make the installer
         shell: pwsh
+        continue-on-error: true
         run: |
-          choco install innosetup -y --no-progress
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" WaveTonePC/installer.iss
-          Copy-Item setupout/WaveTone-Setup.exe out/WaveTone-Setup.exe
+          $iscc = Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress --force
+            $iscc = Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          Write-Host "Using $($iscc.FullName)"
+          $root = (Get-Location).Path
+          New-Item -ItemType Directory -Force -Path "$root\setupout" | Out-Null
+          & $iscc.FullName "/O$root\setupout" "/FWaveTone-Setup" "$root\WaveTonePC\installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with code $LASTEXITCODE" }
+          Copy-Item "$root\setupout\WaveTone-Setup.exe" "$root\out\WaveTone-Setup.exe"
 
       - name: Keep the PC app
         uses: actions/upload-artifact@v4
@@ -114,3 +123,4 @@ jobs:
           files: |
             collected/*.apk
             collected/*.exe
+          
